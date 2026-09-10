@@ -99,6 +99,71 @@ _DEEPSEEK_CANONICAL_MODELS: frozenset[str] = frozenset({
 # (``deepseek-v4-flash-20260423``): verified real model ids, NOT aliases of ``deepseek-chat``.
 _DEEPSEEK_V_SERIES_RE = re.compile(r"^deepseek-v\d+([-.].+)?$")
 
+# AWS Bedrock cross-region inference profile prefixes, keyed by the AWS region's leading
+# partition token ("us-east-1" -> "us", "eu-central-1" -> "eu"). Bedrock's Asia-Pacific CRIS
+# profiles use "apac", not "ap" -- that's the one token that doesn't match the region string
+# itself, so it needs an explicit override; every other partition prefix reuses the token as-is.
+_BEDROCK_REGION_PARTITION_OVERRIDES: dict[str, str] = {"ap": "apac"}
+
+# A model id that already carries a recognized CRIS prefix (regional or "global.") -- don't
+# double-prefix these.
+_BEDROCK_GEO_PREFIX_RE = re.compile(
+    r"^(?:global|us|eu|apac|ap|au|jp|ca|sa|me|af)\.", re.IGNORECASE)
+
+
+def _bedrock_region_prefix() -> Optional[str]:
+    """CRIS geo prefix ("us", "eu", ...) for the runtime's resolved Bedrock region, or None if
+    the adapter isn't importable (boto3 missing) -- caller falls through to a no-op in that case."""
+    try:
+        from agent.bedrock_adapter import resolve_bedrock_runtime_region
+    except Exception:
+        return None
+    region = (resolve_bedrock_runtime_region() or "").strip().lower()
+    token = region.split("-", 1)[0] if region else ""
+    return _BEDROCK_REGION_PARTITION_OVERRIDES.get(token, token) or None
+
+
+# Vendor families whose Bedrock foundation-model ids are CRIS-only (no on-demand throughput
+# without a region/global prefix) -- verified against live discover_bedrock_models() output:
+# every anthropic.claude* bare id has a working us.* AND global.* profile. Most OTHER Bedrock
+# vendors (Mistral small models, Qwen, GLM, Nemotron, Gemma, Minimax, ...) have NO inference
+# profile at all -- prefixing those would break a bare id that currently works. Narrow on
+# purpose: extend this set only for a vendor prefix you've verified the same way, never guess.
+_BEDROCK_CRIS_ONLY_VENDOR_PREFIXES: tuple[str, ...] = ("anthropic.",)
+
+
+def _normalize_for_bedrock(model_name: str) -> str:
+    """Bedrock's Converse API rejects bare Anthropic Claude ids ("on-demand throughput isn't
+    supported") and demands the region-prefixed cross-region inference profile id instead
+    (``us.anthropic.claude-opus-5``, not ``anthropic.claude-opus-5``). Repair that here so every
+    caller -- typed model names, saved config, the /model picker -- gets a working id without each
+    of them having to know Bedrock's profile-id convention. Scoped to
+    ``_BEDROCK_CRIS_ONLY_VENDOR_PREFIXES`` (Anthropic only, verified): most other Bedrock vendors
+    ship no inference profile and a bare id is the ONLY way to call them, so this must not become
+    a blanket "prefix every Bedrock model" rule. Already-prefixed ids and Bedrock Mantle's
+    OpenAI-compatible models pass through untouched; on lookup failure the bare id passes through
+    (no worse than before this normalizer existed).
+
+    ponytail: static vendor-prefix allowlist + single-region-token map (`us`, `eu`, `apac`, ...),
+    not full CRIS-availability-per-model-id discovery -- if a future Anthropic id ships without a
+    profile, or another vendor's family goes CRIS-only, extend the allowlist/override map rather
+    than making this a network probe per call."""
+    bare = _strip_matching_provider_prefix(model_name, "bedrock")
+    if _BEDROCK_GEO_PREFIX_RE.match(bare):
+        return bare
+    if not bare.lower().startswith(_BEDROCK_CRIS_ONLY_VENDOR_PREFIXES):
+        return bare
+    try:
+        from agent.bedrock_adapter import is_openai_bedrock_model
+        if is_openai_bedrock_model(bare):
+            return bare
+    except Exception:
+        pass
+    prefix = _bedrock_region_prefix()
+
+    return f"{prefix}.{bare}" if prefix else bare
+
+
 
 def _normalize_for_deepseek(model_name: str) -> str:
     """Map a model input to a DeepSeek-accepted id: canonicals and ``deepseek-v<digit>…`` pass
@@ -253,6 +318,9 @@ def normalize_model_for_provider(model_input: str, target_provider: str) -> str:
     if provider == "deepseek":
         bare = _strip_matching_provider_prefix(name, provider)
         return bare if "/" in bare else _normalize_for_deepseek(bare)
+
+    if provider == "bedrock":
+        return _normalize_for_bedrock(name)
 
     if provider in _MATCHING_PREFIX_STRIP_PROVIDERS:
         result = _strip_matching_provider_prefix(name, provider)
