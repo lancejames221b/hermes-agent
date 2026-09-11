@@ -6,6 +6,7 @@ import email as email_lib
 from contextlib import contextmanager, suppress
 import imaplib
 import logging
+import markdown as _markdown  # pinned core dep (pyproject.toml); no ImportError guard needed
 import os
 import re
 import smtplib
@@ -238,6 +239,12 @@ def _strip_html(html: str) -> str:
     for pattern, repl in _HTML_SUBS:
         html = pattern.sub(repl, html)
     return html.strip()
+
+
+def _render_html_body(body: str) -> str:
+    """Render our outbound Markdown as HTML so Gmail shows bold/lists/links instead of raw ``**``/``-`` syntax."""
+    html = _markdown.markdown(body, extensions=["fenced_code", "tables", "nl2br", "sane_lists"])
+    return f'<div style="font-family:-apple-system,Helvetica,Arial,sans-serif;font-size:14px;white-space:normal">{html}</div>'
 
 
 def _extract_email_address(raw: str) -> str:
@@ -680,7 +687,10 @@ class EmailAdapter(BasePlatformAdapter):
                            ("Date", formatdate(localtime=True)), ("Message-ID", msg_id)):
             msg[key] = value
         if body or attach_empty_body:
-            msg.attach(MIMEText(body, "plain", "utf-8"))
+            alt = MIMEMultipart("alternative")
+            alt.attach(MIMEText(body, "plain", "utf-8"))
+            alt.attach(MIMEText(_render_html_body(body), "html", "utf-8"))
+            msg.attach(alt)
         return msg, msg_id, subject
 
     def _smtp_send(self, msg: MIMEMultipart) -> None:
@@ -776,7 +786,9 @@ async def _standalone_send(pconfig, chat_id, message, *, thread_id=None, media_f
     if not all([address, password, smtp_host]):
         return {"error": "Email not configured (EMAIL_ADDRESS, EMAIL_PASSWORD, EMAIL_SMTP_HOST required)"}
     try:
-        msg = MIMEText(message, "plain", "utf-8")
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(message, "plain", "utf-8"))
+        msg.attach(MIMEText(_render_html_body(message), "html", "utf-8"))
         for key, value in (("From", address), ("To", chat_id), ("Subject", "Hermes Agent"), ("Date", formatdate(localtime=True))):
             msg[key] = value
         server = _open_smtp(smtp_host, smtp_port, smtp_security, _tls_context(smtp_tls_verify, smtp_host), smtplib.SMTP, smtplib.SMTP_SSL)
