@@ -2709,6 +2709,14 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
             current_existing_payload = self._existing_command_to_payload(current)
             current_payload = self._canonicalize_app_command_payload(current_existing_payload)
             desired_payload = self._canonicalize_app_command_payload(desired)
+            # Hermes never sets allowed_contexts/allowed_installs, so discord.py sends these as
+            # None and Discord substitutes the app's configured install contexts (now [0, 1] since
+            # the user-install rollout). Echoing that default back is not drift — without this every
+            # command diffs forever and gets delete+recreated on each connect (68 cmds x 2 mutations
+            # x 4.5s = 612s, past the 600s sync timeout), churning the command bucket. See #20311.
+            for unmanaged in ("contexts", "integration_types"):
+                if desired_payload.get(unmanaged) is None:
+                    current_payload[unmanaged] = None
             if current_payload == desired_payload:
                 summary["unchanged"] += 1
                 continue
