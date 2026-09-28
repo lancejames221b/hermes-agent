@@ -3602,6 +3602,23 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
                     return True
                 await existing.move_to(channel)
                 self._reset_voice_timeout(guild_id)
+                # LOCAL PATCH: move_to() negotiates a fresh voice session; restart the
+                # receiver + listen loop against the post-move connection.
+                old_receiver = self._voice_receivers.pop(guild_id, None)
+                if old_receiver:
+                    old_receiver.stop()
+                old_task = self._voice_listen_tasks.pop(guild_id, None)
+                if old_task:
+                    old_task.cancel()
+                try:
+                    receiver = VoiceReceiver(existing, allowed_user_ids=self._allowed_user_ids)
+                    receiver.start()
+                    self._voice_receivers[guild_id] = receiver
+                    self._voice_listen_tasks[guild_id] = asyncio.ensure_future(
+                        self._voice_listen_loop(guild_id)
+                    )
+                except Exception as e:
+                    logger.warning("Voice receiver failed to restart after move: %s", e)
                 return True
             vc = await channel.connect()
             self._voice_clients[guild_id] = vc
@@ -6040,7 +6057,8 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
         if not is_thread and not isinstance(message.channel, discord.DMChannel):
             no_thread_channels = self._get_no_thread_channels()
             # Voice-linked and reply exclusions live in the auto-thread gate below, not in skip_thread.
-            skip_thread = bool(channel_keys & no_thread_channels) or (
+            # LOCAL PATCH: voice-channel text chat can't host threads (Discord 50024); reply inline.
+            skip_thread = isinstance(message.channel, discord.VoiceChannel) or bool(channel_keys & no_thread_channels) or (
                 is_free_channel and not self._discord_free_response_auto_thread()
             )
             auto_thread = self._extra_or_env_flag("auto_thread", "DISCORD_AUTO_THREAD", "true", truthy=True)

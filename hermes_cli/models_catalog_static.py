@@ -207,11 +207,9 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     "minimax": list(_MINIMAX_MODELS),
     "minimax-oauth": ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.7-highspeed"],
     "minimax-cn": list(_MINIMAX_MODELS),
+    # U221B: trimmed to Lance's in-use models per his request. Older ids still work if typed/aliased.
     "anthropic": [
-        "claude-fable-5.1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5",
-        "claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6",
-        "claude-sonnet-4-6", "claude-opus-4-5-20251101", "claude-sonnet-4-5-20250929",
-        "claude-opus-4-20250514", "claude-sonnet-4-20250514", "claude-haiku-4-5-20251001",
+        "claude-fable-5.1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5-20251001",
     ],
     "deepseek": ["deepseek-flash", "deepseek-v4-pro"],
     "xiaomi": [
@@ -273,12 +271,9 @@ _PROVIDER_MODELS: dict[str, list[str]] = {
     # unavailable. Inference-profile IDs (us.*) because most models require them.
     "bedrock": [
         # [0] is the provider default (get_default_model_for_provider) — keep the cheaper Sonnet there.
-        "us.anthropic.claude-sonnet-5", "us.anthropic.claude-opus-5-5", "us.anthropic.claude-sonnet-4-6",
-        "us.anthropic.claude-opus-4-6-v1",
-        "us.anthropic.claude-haiku-4-5-20251001-v1:0", "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-        "openai.gpt-5.5", "openai.gpt-5.6-sol", "openai.gpt-5.6-terra", "openai.gpt-5.6-luna",
-        "us.amazon.nova-pro-v1:0", "us.amazon.nova-lite-v1:0", "us.amazon.nova-micro-v1:0", "deepseek.v3.2",
-        "us.meta.llama4-maverick-17b-instruct-v1:0", "us.meta.llama4-scout-17b-instruct-v1:0",
+        # U221B: trimmed to Lance's in-use models.
+        "us.anthropic.claude-sonnet-5", "us.anthropic.claude-opus-5-5", "us.anthropic.claude-opus-5",
+        "us.anthropic.claude-haiku-4-5-20251001-v1:0",
     ],
     # Azure Foundry models depend on the user's endpoint configuration.
     "azure-foundry": [],
