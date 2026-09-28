@@ -86,7 +86,11 @@ class MCPServerRunMixin:
                     return "recycle"
                 timeout = keepalive_interval
                 if timeout is None and not self._session_proven and proof_at is not None:
-                    timeout = max(0.0, proof_at - time.monotonic())
+                    # Floor at 1s: once proof_at passes with dead stdio children,
+                    # max(0.0, ...) pins timeout at 0 and this loop busy-spins
+                    # (asyncio.wait returns instantly), starving the GIL and the
+                    # Discord event loop. (patched 2026-09-22)
+                    timeout = max(1.0, proof_at - time.monotonic())
                 recycle_deadline = self._next_stdio_recycle_deadline()
                 if recycle_deadline is not None:
                     recycle_timeout = max(0.0, recycle_deadline - time.monotonic())

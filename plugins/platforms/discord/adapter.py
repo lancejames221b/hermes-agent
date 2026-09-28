@@ -2082,7 +2082,10 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
 
     @staticmethod
     def _is_discord_unknown_interaction(exc: BaseException) -> bool:
-        """True for Discord's expired interaction token error."""
+        """True for a dead interaction token: fully expired (10062) or already acknowledged
+        (40060, e.g. Discord redelivering the same INTERACTION_CREATE after a gateway
+        reconnect). Either way the token can't take a fresh response; the caller still
+        runs the command, it just skips the deferred followup."""
         code = getattr(exc, "code", None)
         if code is None:
             data = getattr(exc, "data", None)
@@ -2101,7 +2104,7 @@ class DiscordAdapter(DiscordMediaMixin, BasePlatformAdapter):
         except (TypeError, ValueError):
             status = None
         message = str(exc).lower()
-        return code == 10062 or (status == 404 and "unknown interaction" in message)
+        return code in (10062, 40060) or (status == 404 and "unknown interaction" in message)
 
     def _command_sync_mutation_interval_seconds(self) -> float:
         return _DISCORD_COMMAND_SYNC_MUTATION_INTERVAL_SECONDS

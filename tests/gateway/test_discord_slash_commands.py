@@ -175,6 +175,33 @@ async def test_run_simple_slash_executes_when_defer_interaction_expired(adapter)
 
 
 @pytest.mark.asyncio
+async def test_run_simple_slash_executes_when_defer_already_acknowledged(adapter):
+    """Discord redelivering the same interaction (gateway reconnect) makes defer() 400
+    with code 40060 ("already acknowledged"), not 10062. The command must still run
+    (this is what silently ate /voice join before the fix)."""
+    class AlreadyAcked(Exception):
+        status = 400
+        code = 40060
+
+    interaction = SimpleNamespace(
+        channel=_FakeTextChannel(channel_id=123, name="general"),
+        channel_id=123,
+        guild_id=456,
+        user=SimpleNamespace(id=42, name="Jezza", display_name="Jezza"),
+        response=SimpleNamespace(defer=AsyncMock(side_effect=AlreadyAcked("already acknowledged"))),
+        edit_original_response=AsyncMock(),
+        delete_original_response=AsyncMock(),
+    )
+    adapter.handle_message = AsyncMock()
+
+    await adapter._run_simple_slash(interaction, "/voice join")
+
+    adapter.handle_message.assert_awaited_once()
+    event = adapter.handle_message.await_args.args[0]
+    assert event.text == "/voice join"
+
+
+@pytest.mark.asyncio
 async def test_auto_registers_plugin_commands_for_discord(adapter):
     """Plugin slash commands should appear as native Discord app commands."""
     adapter._run_simple_slash = AsyncMock()
